@@ -23,7 +23,7 @@ class TextLayoutService {
 
   double height = 0.0;
 
-  double longestLine = 0.0;
+  EngineLineMetrics? longestLine;
 
   double minIntrinsicWidth = 0.0;
 
@@ -65,7 +65,7 @@ class TextLayoutService {
     // Reset results from previous layout.
     width = constraints.width;
     height = 0.0;
-    longestLine = 0.0;
+    longestLine = null;
     minIntrinsicWidth = 0.0;
     maxIntrinsicWidth = 0.0;
     didExceedMaxLines = false;
@@ -107,6 +107,8 @@ class TextLayoutService {
       // *** THE MAIN MEASUREMENT PART *** //
       // ********************************* //
 
+      final isLastSpan = spanIndex == spanCount - 1;
+
       if (span is PlaceholderSpan) {
         if (currentLine.widthIncludingSpace + span.width <= constraints.width) {
           // The placeholder fits on the current line.
@@ -118,6 +120,11 @@ class TextLayoutService {
             currentLine = currentLine.nextLine();
           }
           currentLine.addPlaceholder(span);
+        }
+
+        if (isLastSpan) {
+          lines.add(currentLine.build());
+          break;
         }
       } else if (span is FlatTextSpan) {
         spanometer.currentSpan = span;
@@ -187,8 +194,9 @@ class TextLayoutService {
         alphabeticBaseline = line.baseline;
         ideographicBaseline = alphabeticBaseline * _baselineRatioHack;
       }
-      if (longestLine < line.width) {
-        longestLine = line.width;
+      final double longestLineWidth = longestLine?.width ?? 0.0;
+      if (longestLineWidth < line.width) {
+        longestLine = line;
       }
     }
 
@@ -218,17 +226,23 @@ class TextLayoutService {
         minIntrinsicWidth = widthOfLastSegment;
       }
 
+      // Max intrinsic width includes the width of trailing spaces.
+      if (maxIntrinsicWidth < currentLine.widthIncludingSpace) {
+        maxIntrinsicWidth = currentLine.widthIncludingSpace;
+      }
+
       if (currentLine.end.isHard) {
-        // Max intrinsic width includes the width of trailing spaces.
-        if (maxIntrinsicWidth < currentLine.widthIncludingSpace) {
-          maxIntrinsicWidth = currentLine.widthIncludingSpace;
-        }
         currentLine = currentLine.nextLine();
       }
 
       // Only go to the next span if we've reached the end of this span.
-      if (currentLine.end.index >= span.end && spanIndex < spanCount - 1) {
-        span = paragraph.spans[++spanIndex];
+      if (currentLine.end.index >= span.end) {
+        if (spanIndex < spanCount - 1) {
+          span = paragraph.spans[++spanIndex];
+        } else {
+          // We reached the end of the last span in the paragraph.
+          break;
+        }
       }
     }
   }
@@ -631,7 +645,10 @@ class LineSegment {
   double get widthOfTrailingSpace => widthIncludingSpace - width;
 
   /// Whether this segment is made of only white space.
-  bool get isSpaceOnly => start.index == end.indexWithoutTrailingSpaces;
+  ///
+  /// We rely on the [width] to determine this because relying on incides
+  /// doesn't work well for placeholders (they are zero-length strings).
+  bool get isSpaceOnly => width == 0;
 }
 
 /// Builds instances of [EngineLineMetrics] for the given [paragraph].
